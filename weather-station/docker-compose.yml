@@ -1,0 +1,15 @@
+services:
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: weather
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+    ports:
+      - "5432:5432"
+
+  mosquitto:
+    image: eclipse-mosquitto
+    ports:
+      - "1883:1883"
