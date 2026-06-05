@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Estação Meteorológica</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial;
+            background: #0f172a;
+            color: white;
+            text-align: center;
+        }
+
+        .container {
+            width: 90%;
+            margin: auto;
+        }
+
+        canvas {
+            background: #1e293b;
+            border-radius: 10px;
+            padding: 10px;
+        }
+    </style>
+</head>
+
+<body>
+
+<h1>🌦️ Estação Meteorológica IoT</h1>
+
+<div class="container">
+    <canvas id="chartTemp"></canvas>
+    <br><br>
+    <canvas id="chartHum"></canvas>
+</div>
+
+<script>
+    let chartTemp;
+    let chartHum;
+
+    async function fetchData() {
+        const res = await fetch("/data");
+        return await res.json();
+    }
+
+    async function updateCharts() {
+        const data = await fetchData();
+
+        const labels = data.tempo;
+
+        // 🌡️ Temperatura
+        chartTemp.data.labels = labels;
+        chartTemp.data.datasets[0].data = data.temperatura;
+        chartTemp.update();
+
+        // 💧 Umidade
+        chartHum.data.labels = labels;
+        chartHum.data.datasets[0].data = data.umidade;
+        chartHum.update();
+    }
+
+    function initCharts() {
+        const ctx1 = document.getElementById("chartTemp").getContext("2d");
+        const ctx2 = document.getElementById("chartHum").getContext("2d");
+
+        chartTemp = new Chart(ctx1, {
+            type: "line",
+            data: {
+                labels: [],
+                datasets: [{
+                    label: "Temperatura (°C)",
+                    data: [],
+                    borderColor: "red",
+                    fill: false
+                }]
+            }
+        });
+
+        chartHum = new Chart(ctx2, {
+            type: "line",
+            data: {
+                labels: [],
+                datasets: [{
+                    label: "Umidade (%)",
+                    data: [],
+                    borderColor: "blue",
+                    fill: false
+                }]
+            }
+        });
+    }
+
+    initCharts();
+    updateCharts();
+    setInterval(updateCharts, 3000);
+</script>
+
+</body>
+</html>
