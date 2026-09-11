@@ -15,6 +15,7 @@ conn = psycopg2.connect(
 
 cursor = conn.cursor()
 
+
 # =========================
 # 📡 MQTT CONFIG
 # =========================

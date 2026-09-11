@@ -6,7 +6,7 @@ app = Flask(__name__)
 # =========================
 # 🔗 POSTGRES CONFIG
 # =========================
-conn = psycopg2.connect(
+DB_CONFIG = dict(
     dbname="iot_db",
     user="admin",
     password="3415",
@@ -14,7 +14,12 @@ conn = psycopg2.connect(
     port="5432"
 )
 
-cursor = conn.cursor()
+
+def get_connection():
+    """Abre uma conexão nova por requisição. Mais robusto que manter uma
+    conexão global (que quebra se o Postgres reiniciar ou cair a rede)."""
+    return psycopg2.connect(**DB_CONFIG)
+
 
 # =========================
 # 🏠 HOME
@@ -23,19 +28,24 @@ cursor = conn.cursor()
 def index():
     return render_template("index.html")
 
+
 # =========================
-# 📊 API DADOS
+# 📊 API DADOS REAIS
 # =========================
 @app.route("/data")
 def data():
-    cursor.execute("""
-        SELECT temperatura, umidade, data_hora
-        FROM sensores
-        ORDER BY id DESC
-        LIMIT 20
-    """)
-
-    rows = cursor.fetchall()
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+                       SELECT temperatura, umidade, data_hora
+                       FROM sensores
+                       ORDER BY id DESC
+                           LIMIT 20
+                       """)
+        rows = cursor.fetchall()
+    finally:
+        conn.close()
 
     rows.reverse()
 
@@ -44,6 +54,36 @@ def data():
         "umidade": [r[1] for r in rows],
         "tempo": [str(r[2]) for r in rows]
     })
+
+
+# =========================
+# 🔮 API PREVISÕES
+# =========================
+@app.route("/predictions")
+def predictions():
+    """Retorna a previsão mais recente para cada horizonte (1h, 2h, 3h)."""
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+                       SELECT DISTINCT ON (horizonte_horas)
+                           horizonte_horas, timestamp_previsto, temperatura_prevista, umidade_prevista
+                       FROM previsoes
+                       ORDER BY horizonte_horas, gerado_em DESC
+                       """)
+        rows = cursor.fetchall()
+    finally:
+        conn.close()
+
+    rows.sort(key=lambda r: r[0])
+
+    return jsonify({
+        "horizontes": [r[0] for r in rows],
+        "tempo": [str(r[1]) for r in rows],
+        "temperatura": [r[2] for r in rows],
+        "umidade": [r[3] for r in rows],
+    })
+
 
 # =========================
 # 🚀 START

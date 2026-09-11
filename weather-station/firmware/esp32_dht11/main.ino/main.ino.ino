@@ -1,6 +1,7 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <DHT.h>
+#include <time.h>
 
 #define DHTPIN 4
 #define DHTTYPE DHT11
@@ -12,10 +13,13 @@ const char* ssid = "Loading-Ext";
 const char* password = "9C2KC2200GR118580&v";
 
 // MQTT
-const char* mqtt_server = "192.168.0.250";
+const char* mqtt_server = "192.168.0.103";
 
 WiFiClient espClient;
 PubSubClient client(espClient);
+
+unsigned long ultimoEnvio = 0;
+const unsigned long intervaloEnvio = 30000; // 30 segundos
 
 void setup_wifi() {
 
@@ -32,10 +36,30 @@ void setup_wifi() {
     Serial.print(".");
   }
 
-  Serial.println("");
+  Serial.println();
   Serial.println("WiFi conectado");
   Serial.print("IP ESP32: ");
   Serial.println(WiFi.localIP());
+
+  // NTP - Horário do Brasil (UTC-3)
+  configTime(
+    -3 * 3600,
+    0,
+    "pool.ntp.org",
+    "time.nist.gov"
+  );
+
+  Serial.print("Sincronizando horário");
+
+  struct tm timeinfo;
+
+  while (!getLocalTime(&timeinfo)) {
+    Serial.print(".");
+    delay(1000);
+  }
+
+  Serial.println();
+  Serial.println("Horário sincronizado!");
 }
 
 void reconnect() {
@@ -78,28 +102,56 @@ void loop() {
 
   client.loop();
 
-  float temperatura = dht.readTemperature();
-  float umidade = dht.readHumidity();
+  unsigned long agora = millis();
 
-  if (isnan(temperatura) || isnan(umidade)) {
-    Serial.println("Erro leitura DHT11");
-    return;
-  }
+  if (agora - ultimoEnvio >= intervaloEnvio) {
 
-  String payload = "{";
-  payload += "\"temperature\":";
-  payload += String(temperatura);
-  payload += ",";
-  payload += "\"humidity\":";
-  payload += String(umidade);
-  payload += "}";
+    ultimoEnvio = agora;
 
-  Serial.println(payload);
+    float temperatura = dht.readTemperature();
+    float umidade = dht.readHumidity();
 
-  client.publish(
+    if (isnan(temperatura) || isnan(umidade)) {
+      Serial.println("Erro leitura DHT11");
+      return;
+    }
+
+    String payload = "{";
+    payload += "\"temperature\":";
+    payload += String(temperatura, 1);
+    payload += ",";
+    payload += "\"humidity\":";
+    payload += String(umidade, 1);
+    payload += "}";
+
+    struct tm timeinfo;
+
+    if (getLocalTime(&timeinfo)) {
+
+      char dataHora[30];
+
+      strftime(
+        dataHora,
+        sizeof(dataHora),
+        "%d/%m/%Y %H:%M:%S",
+        &timeinfo
+      );
+
+      Serial.print("[");
+      Serial.print(dataHora);
+      Serial.print("] ");
+
+      Serial.println(payload);
+
+    } else {
+
+      Serial.println(payload);
+
+    }
+
+    client.publish(
       "weather/data",
       payload.c_str()
-  );
-
-  delay(10000);
+    );
+  }
 }

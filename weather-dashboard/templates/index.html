@@ -1,37 +1,220 @@
 <!DOCTYPE html>
-<html>
+<html lang="pt-BR">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Estação Meteorológica</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --bg-1: #0b1120;
+            --bg-2: #14264d;
+            --bg-3: #1f3b73;
+            --card-bg: rgba(255, 255, 255, 0.045);
+            --card-border: rgba(255, 255, 255, 0.09);
+            --text-primary: #f5f7fa;
+            --text-secondary: #93a1bd;
+            --accent-warm: #ff8a5b;
+            --accent-cool: #4fd1c5;
+        }
+
+        * { box-sizing: border-box; }
+
         body {
-            font-family: Arial;
-            background: #0f172a;
-            color: white;
+            margin: 0;
+            min-height: 100vh;
+            font-family: "Inter", sans-serif;
+            color: var(--text-primary);
+            background: linear-gradient(160deg, var(--bg-1) 0%, var(--bg-2) 45%, var(--bg-3) 100%);
+            background-attachment: fixed;
+        }
+
+        .wrap {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 32px 20px 64px;
+        }
+
+        /* ---------- HERO ---------- */
+        .hero {
             text-align: center;
+            padding: 28px 0 36px;
         }
 
-        .container {
-            width: 90%;
-            margin: auto;
+        .hero .location {
+            font-size: 14px;
+            letter-spacing: 0.02em;
+            color: var(--text-secondary);
+            margin-bottom: 18px;
         }
 
-        canvas {
-            background: #1e293b;
-            border-radius: 10px;
-            padding: 10px;
+        .hero .icon {
+            font-size: 56px;
+            line-height: 1;
+            margin-bottom: 8px;
+        }
+
+        .hero .temp {
+            font-family: "Sora", sans-serif;
+            font-weight: 700;
+            font-size: 88px;
+            line-height: 1;
+            letter-spacing: -0.02em;
+        }
+
+        .hero .condition {
+            font-size: 18px;
+            color: var(--text-secondary);
+            margin-top: 6px;
+        }
+
+        .hero .meta {
+            margin-top: 14px;
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        .hero .meta strong {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        /* ---------- FORECAST STRIP ---------- */
+        .forecast-strip {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 14px;
+            margin: 8px 0 40px;
+        }
+
+        .forecast-card {
+            background: var(--card-bg);
+            border: 1px dashed var(--card-border);
+            border-radius: 14px;
+            padding: 18px 12px;
+            text-align: center;
+            backdrop-filter: blur(6px);
+        }
+
+        .forecast-card .fc-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 10px;
+        }
+
+        .forecast-card .fc-icon {
+            font-size: 28px;
+            margin-bottom: 6px;
+        }
+
+        .forecast-card .fc-temp {
+            font-family: "Sora", sans-serif;
+            font-weight: 600;
+            font-size: 26px;
+            color: var(--accent-warm);
+        }
+
+        .forecast-card .fc-umid {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        .forecast-card .fc-tag {
+            display: inline-block;
+            margin-top: 10px;
+            font-size: 10px;
+            letter-spacing: 0.06em;
+            color: var(--accent-warm);
+            border: 1px solid rgba(255, 138, 91, 0.4);
+            border-radius: 999px;
+            padding: 2px 10px;
+        }
+
+        /* ---------- CHARTS ---------- */
+        .charts-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 18px;
+        }
+
+        .chart-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 20px;
+            backdrop-filter: blur(6px);
+        }
+
+        .chart-card h3 {
+            font-family: "Sora", sans-serif;
+            font-weight: 600;
+            font-size: 15px;
+            margin: 0 0 4px;
+        }
+
+        .chart-card .legend-hint {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin: 0 0 14px;
+        }
+
+        .chart-card .legend-hint .dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+
+        canvas { max-height: 220px; }
+
+        @media (max-width: 640px) {
+            .hero .temp { font-size: 64px; }
+            .forecast-strip { grid-template-columns: 1fr; }
+            .charts-grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
-
 <body>
 
-<h1>🌦️ Estação Meteorológica IoT</h1>
+<div class="wrap">
 
-<div class="container">
-    <canvas id="chartTemp"></canvas>
-    <br><br>
-    <canvas id="chartHum"></canvas>
+    <div class="hero">
+        <div class="location">📍 Estação Meteorológica Local</div>
+        <div class="icon" id="heroIcon">—</div>
+        <div class="temp"><span id="heroTemp">--</span>°</div>
+        <div class="condition" id="heroCondition">Carregando...</div>
+        <div class="meta">
+            Umidade <strong id="heroUmid">--</strong>% · Atualizado às <strong id="heroTime">--:--</strong>
+        </div>
+    </div>
+
+    <div class="forecast-strip" id="forecastStrip">
+        <!-- preenchido via JS -->
+    </div>
+
+    <div class="charts-grid">
+        <div class="chart-card">
+            <h3>Temperatura</h3>
+            <p class="legend-hint">
+                <span class="dot" style="background:var(--accent-cool)"></span>Real
+                <span style="margin-left:14px" class="dot" style="background:var(--accent-warm)"></span>Previsto
+            </p>
+            <canvas id="chartTemp"></canvas>
+        </div>
+        <div class="chart-card">
+            <h3>Umidade</h3>
+            <p class="legend-hint">
+                <span class="dot" style="background:var(--accent-cool)"></span>Real
+                <span style="margin-left:14px" class="dot" style="background:var(--accent-warm)"></span>Previsto
+            </p>
+            <canvas id="chartHum"></canvas>
+        </div>
+    </div>
+
 </div>
 
 <script>
@@ -43,20 +226,127 @@
         return await res.json();
     }
 
-    async function updateCharts() {
-        const data = await fetchData();
+    async function fetchPredictions() {
+        const res = await fetch("/predictions");
+        return await res.json();
+    }
 
-        const labels = data.tempo;
+    // Heurística simples só para escolher um ícone/rótulo de condição na
+    // interface. Não é o modelo de previsão (que estima temperatura e
+    // umidade numericamente) — é só uma leitura amigável do estado atual.
+    function getCondition(temp, umid) {
+        if (umid >= 85) return { icon: "🌧️", label: "Chuva provável" };
+        if (temp >= 30) return { icon: "☀️", label: "Quente" };
+        if (temp >= 22) return { icon: "🌤️", label: "Agradável" };
+        if (temp >= 15) return { icon: "⛅", label: "Ameno" };
+        return { icon: "❄️", label: "Frio" };
+    }
 
-        // 🌡️ Temperatura
+    function formatHora(isoString) {
+        // Assumimos que o timestamp vem do banco em UTC (comportamento comum
+        // quando o script de coleta grava com datetime.utcnow() ou o NTP da
+        // ESP32 está configurado em UTC). Convertendo explicitamente para
+        // America/Sao_Paulo (GMT-3), independente do fuso do navegador.
+        const isoUTC = isoString.replace(" ", "T") + "Z";
+        const d = new Date(isoUTC);
+        if (isNaN(d)) return isoString;
+        return d.toLocaleTimeString("pt-BR", {
+            hour: "2-digit",
+            minute: "2-digit",
+            timeZone: "America/Sao_Paulo"
+        });
+    }
+
+    function updateHero(real) {
+        const n = real.temperatura.length;
+        if (n === 0) return;
+
+        const temp = real.temperatura[n - 1];
+        const umid = real.umidade[n - 1];
+        const cond = getCondition(temp, umid);
+
+        document.getElementById("heroTemp").textContent = temp.toFixed(1);
+        document.getElementById("heroUmid").textContent = umid.toFixed(0);
+        document.getElementById("heroIcon").textContent = cond.icon;
+        document.getElementById("heroCondition").textContent = cond.label;
+        document.getElementById("heroTime").textContent = formatHora(real.tempo[n - 1]);
+    }
+
+    function updateForecastStrip(pred) {
+        const strip = document.getElementById("forecastStrip");
+        strip.innerHTML = "";
+
+        pred.horizontes.forEach((h, i) => {
+            const temp = pred.temperatura[i];
+            const umid = pred.umidade[i];
+            const cond = getCondition(temp, umid);
+
+            const card = document.createElement("div");
+            card.className = "forecast-card";
+            card.innerHTML = `
+                <div class="fc-label">Daqui ${h}h · ${formatHora(pred.tempo[i])}</div>
+                <div class="fc-icon">${cond.icon}</div>
+                <div class="fc-temp">${temp.toFixed(1)}°</div>
+                <div class="fc-umid">${umid.toFixed(0)}% umidade</div>
+                <div class="fc-tag">PREVISTO</div>
+            `;
+            strip.appendChild(card);
+        });
+    }
+
+    function updateCharts(real, pred) {
+        const labels = [...real.tempo, ...pred.tempo].map(formatHora);
+
+        const tempReal = [...real.temperatura, ...pred.tempo.map(() => null)];
+        const umidReal = [...real.umidade, ...pred.tempo.map(() => null)];
+
+        const nullsAteUltimoReal = Array(Math.max(real.tempo.length - 1, 0)).fill(null);
+        const tempPrevisto = [
+            ...nullsAteUltimoReal,
+            real.temperatura[real.temperatura.length - 1] ?? null,
+            ...pred.temperatura,
+        ];
+        const umidPrevisto = [
+            ...nullsAteUltimoReal,
+            real.umidade[real.umidade.length - 1] ?? null,
+            ...pred.umidade,
+        ];
+
         chartTemp.data.labels = labels;
-        chartTemp.data.datasets[0].data = data.temperatura;
+        chartTemp.data.datasets[0].data = tempReal;
+        chartTemp.data.datasets[1].data = tempPrevisto;
         chartTemp.update();
 
-        // 💧 Umidade
         chartHum.data.labels = labels;
-        chartHum.data.datasets[0].data = data.umidade;
+        chartHum.data.datasets[0].data = umidReal;
+        chartHum.data.datasets[1].data = umidPrevisto;
         chartHum.update();
+    }
+
+    async function refreshAll() {
+        const [real, pred] = await Promise.all([fetchData(), fetchPredictions()]);
+        updateHero(real);
+        updateForecastStrip(pred);
+        updateCharts(real, pred);
+    }
+
+    function baseChartOptions() {
+        return {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "index", intersect: false },
+            plugins: { legend: { display: false } },
+            scales: {
+                x: {
+                    ticks: { color: "#93a1bd", maxRotation: 0, autoSkip: true, maxTicksLimit: 6 },
+                    grid: { color: "rgba(255,255,255,0.05)" }
+                },
+                y: {
+                    ticks: { color: "#93a1bd" },
+                    grid: { color: "rgba(255,255,255,0.05)" }
+                }
+            }
+        };
     }
 
     function initCharts() {
@@ -67,32 +357,68 @@
             type: "line",
             data: {
                 labels: [],
-                datasets: [{
-                    label: "Temperatura (°C)",
-                    data: [],
-                    borderColor: "red",
-                    fill: false
-                }]
-            }
+                datasets: [
+                    {
+                        label: "Real",
+                        data: [],
+                        borderColor: "#4fd1c5",
+                        backgroundColor: "rgba(79, 209, 197, 0.12)",
+                        borderWidth: 2,
+                        tension: 0.35,
+                        pointRadius: 0,
+                        fill: true
+                    },
+                    {
+                        label: "Previsto",
+                        data: [],
+                        borderColor: "#ff8a5b",
+                        borderDash: [6, 4],
+                        borderWidth: 2,
+                        tension: 0.15,
+                        pointRadius: 4,
+                        pointBackgroundColor: "#ff8a5b",
+                        fill: false
+                    }
+                ]
+            },
+            options: baseChartOptions()
         });
 
         chartHum = new Chart(ctx2, {
             type: "line",
             data: {
                 labels: [],
-                datasets: [{
-                    label: "Umidade (%)",
-                    data: [],
-                    borderColor: "blue",
-                    fill: false
-                }]
-            }
+                datasets: [
+                    {
+                        label: "Real",
+                        data: [],
+                        borderColor: "#4fd1c5",
+                        backgroundColor: "rgba(79, 209, 197, 0.12)",
+                        borderWidth: 2,
+                        tension: 0.35,
+                        pointRadius: 0,
+                        fill: true
+                    },
+                    {
+                        label: "Previsto",
+                        data: [],
+                        borderColor: "#ff8a5b",
+                        borderDash: [6, 4],
+                        borderWidth: 2,
+                        tension: 0.15,
+                        pointRadius: 4,
+                        pointBackgroundColor: "#ff8a5b",
+                        fill: false
+                    }
+                ]
+            },
+            options: baseChartOptions()
         });
     }
 
     initCharts();
-    updateCharts();
-    setInterval(updateCharts, 3000);
+    refreshAll();
+    setInterval(refreshAll, 5000);
 </script>
 
 </body>
