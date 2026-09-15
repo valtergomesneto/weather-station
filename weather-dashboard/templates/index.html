@@ -70,6 +70,24 @@
             margin-top: 6px;
         }
 
+        .hero .outlook {
+            display: inline-block;
+            margin-top: 16px;
+            padding: 10px 18px;
+            font-size: 15px;
+            font-weight: 500;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid var(--card-border);
+            border-radius: 999px;
+        }
+
+        .hero .outlook-hint {
+            margin-top: 6px;
+            font-size: 11px;
+            color: var(--text-secondary);
+            opacity: 0.7;
+        }
+
         .hero .meta {
             margin-top: 14px;
             font-size: 14px;
@@ -156,17 +174,39 @@
         }
 
         .chart-card .legend-hint {
+            display: flex;
+            align-items: center;
+            gap: 18px;
             font-size: 12px;
             color: var(--text-secondary);
             margin: 0 0 14px;
         }
 
-        .chart-card .legend-hint .dot {
+        .chart-card .legend-hint .item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .chart-card .legend-hint .swatch-line {
             display: inline-block;
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            margin-right: 5px;
+            width: 20px;
+            height: 0;
+            border-top: 2px solid var(--accent-cool);
+        }
+
+        .chart-card .legend-hint .swatch-dash {
+            display: inline-block;
+            width: 20px;
+            height: 0;
+            border-top: 2px dashed var(--accent-warm);
+        }
+
+        .chart-card .forecast-badge {
+            margin-left: auto;
+            font-size: 10px;
+            letter-spacing: 0.05em;
+            color: var(--accent-warm);
         }
 
         canvas { max-height: 220px; }
@@ -183,10 +223,12 @@
 <div class="wrap">
 
     <div class="hero">
-        <div class="location">📍 Estação Meteorológica Local</div>
+        <div class="location">📍 Estação Meteorológica Praia Grande - SP</div>
         <div class="icon" id="heroIcon">—</div>
         <div class="temp"><span id="heroTemp">--</span>°</div>
         <div class="condition" id="heroCondition">Carregando...</div>
+        <div class="outlook" id="heroOutlook"></div>
+        <div class="outlook-hint">tendência estimada a partir da previsão do modelo</div>
         <div class="meta">
             Umidade <strong id="heroUmid">--</strong>% · Atualizado às <strong id="heroTime">--:--</strong>
         </div>
@@ -200,16 +242,18 @@
         <div class="chart-card">
             <h3>Temperatura</h3>
             <p class="legend-hint">
-                <span class="dot" style="background:var(--accent-cool)"></span>Real
-                <span style="margin-left:14px" class="dot" style="background:var(--accent-warm)"></span>Previsto
+                <span class="item"><span class="swatch-line"></span>Real</span>
+                <span class="item"><span class="swatch-dash"></span>Previsto</span>
+                <span class="forecast-badge">ÁREA SOMBREADA = PREVISÃO</span>
             </p>
             <canvas id="chartTemp"></canvas>
         </div>
         <div class="chart-card">
             <h3>Umidade</h3>
             <p class="legend-hint">
-                <span class="dot" style="background:var(--accent-cool)"></span>Real
-                <span style="margin-left:14px" class="dot" style="background:var(--accent-warm)"></span>Previsto
+                <span class="item"><span class="swatch-line"></span>Real</span>
+                <span class="item"><span class="swatch-dash"></span>Previsto</span>
+                <span class="forecast-badge">ÁREA SOMBREADA = PREVISÃO</span>
             </p>
             <canvas id="chartHum"></canvas>
         </div>
@@ -222,13 +266,25 @@
     let chartHum;
 
     async function fetchData() {
-        const res = await fetch("/data");
-        return await res.json();
+        try {
+            const res = await fetch("/data");
+            if (!res.ok) throw new Error(`/data respondeu HTTP ${res.status}`);
+            return await res.json();
+        } catch (err) {
+            console.error("Falha ao buscar /data:", err);
+            return { temperatura: [], umidade: [], tempo: [] };
+        }
     }
 
     async function fetchPredictions() {
-        const res = await fetch("/predictions");
-        return await res.json();
+        try {
+            const res = await fetch("/predictions");
+            if (!res.ok) throw new Error(`/predictions respondeu HTTP ${res.status}`);
+            return await res.json();
+        } catch (err) {
+            console.error("Falha ao buscar /predictions:", err);
+            return { horizontes: [], tempo: [], temperatura: [], umidade: [] };
+        }
     }
 
     // Heurística simples só para escolher um ícone/rótulo de condição na
@@ -240,6 +296,39 @@
         if (temp >= 22) return { icon: "🌤️", label: "Agradável" };
         if (temp >= 15) return { icon: "⛅", label: "Ameno" };
         return { icon: "❄️", label: "Frio" };
+    }
+
+    // Gera uma frase curta de tendência comparando o valor atual com o
+    // previsto para t+3h. É uma heurística sobre a SAÍDA do modelo de
+    // regressão (temperatura/umidade) — não é uma previsão de chuva
+    // propriamente dita, já que o modelo não classifica precipitação.
+    function buildOutlook(real, pred) {
+        const n = real.temperatura.length;
+        if (n === 0 || pred.temperatura.length === 0) {
+            return "Aguardando dados suficientes para estimar a tendência.";
+        }
+
+        const tempAtual = real.temperatura[n - 1];
+        const umidAtual = real.umidade[n - 1];
+        const tempFutura = pred.temperatura[pred.temperatura.length - 1];
+        const umidFutura = pred.umidade[pred.umidade.length - 1];
+
+        const deltaTemp = tempFutura - tempAtual;
+        const LIMIAR_UMID_CHUVA = 85;
+        const atualUmida = umidAtual >= LIMIAR_UMID_CHUVA;
+        const futuraUmida = umidFutura >= LIMIAR_UMID_CHUVA;
+
+        const frases = [];
+
+        if (!atualUmida && futuraUmida) frases.push("🌧️ Chuva possível mais tarde");
+        else if (atualUmida && !futuraUmida) frases.push("🌤️ Tende a parar de chover");
+        else if (atualUmida && futuraUmida) frases.push("🌧️ Umidade alta deve continuar");
+
+        if (deltaTemp <= -1.5) frases.push("🌡️ Deverá esfriar um pouco");
+        else if (deltaTemp >= 1.5) frases.push("🌡️ Deverá esquentar um pouco");
+        else frases.push("🌡️ Temperatura deve seguir estável");
+
+        return frases.join(" · ");
     }
 
     function formatHora(isoString) {
@@ -257,7 +346,7 @@
         });
     }
 
-    function updateHero(real) {
+    function updateHero(real, pred) {
         const n = real.temperatura.length;
         if (n === 0) return;
 
@@ -270,6 +359,7 @@
         document.getElementById("heroIcon").textContent = cond.icon;
         document.getElementById("heroCondition").textContent = cond.label;
         document.getElementById("heroTime").textContent = formatHora(real.tempo[n - 1]);
+        document.getElementById("heroOutlook").textContent = buildOutlook(real, pred);
     }
 
     function updateForecastStrip(pred) {
@@ -312,11 +402,15 @@
             ...pred.umidade,
         ];
 
+        const boundaryIndex = Math.max(real.tempo.length - 1, 0);
+
+        chartTemp.$forecastBoundaryIndex = boundaryIndex;
         chartTemp.data.labels = labels;
         chartTemp.data.datasets[0].data = tempReal;
         chartTemp.data.datasets[1].data = tempPrevisto;
         chartTemp.update();
 
+        chartHum.$forecastBoundaryIndex = boundaryIndex;
         chartHum.data.labels = labels;
         chartHum.data.datasets[0].data = umidReal;
         chartHum.data.datasets[1].data = umidPrevisto;
@@ -325,10 +419,51 @@
 
     async function refreshAll() {
         const [real, pred] = await Promise.all([fetchData(), fetchPredictions()]);
-        updateHero(real);
-        updateForecastStrip(pred);
-        updateCharts(real, pred);
+
+        try {
+            updateHero(real, pred);
+        } catch (err) {
+            console.error("Erro ao atualizar o hero:", err);
+        }
+
+        try {
+            updateForecastStrip(pred);
+        } catch (err) {
+            console.error("Erro ao atualizar a tira de previsão:", err);
+        }
+
+        try {
+            updateCharts(real, pred);
+        } catch (err) {
+            console.error("Erro ao atualizar os gráficos:", err);
+        }
     }
+
+    // Plugin customizado: sombreia a região de previsão e desenha uma linha
+    // tracejada marcando onde termina o dado real e começa a projeção.
+    const forecastShadePlugin = {
+        id: "forecastShade",
+        beforeDraw(chart) {
+            const boundary = chart.$forecastBoundaryIndex;
+            if (boundary == null) return;
+
+            const { ctx, chartArea, scales: { x } } = chart;
+            const xPixel = x.getPixelForValue(boundary);
+
+            ctx.save();
+            ctx.fillStyle = "rgba(255, 138, 91, 0.06)";
+            ctx.fillRect(xPixel, chartArea.top, chartArea.right - xPixel, chartArea.bottom - chartArea.top);
+
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.moveTo(xPixel, chartArea.top);
+            ctx.lineTo(xPixel, chartArea.bottom);
+            ctx.stroke();
+            ctx.restore();
+        }
+    };
+    Chart.register(forecastShadePlugin);
 
     function baseChartOptions() {
         return {
@@ -377,6 +512,7 @@
                         tension: 0.15,
                         pointRadius: 4,
                         pointBackgroundColor: "#ff8a5b",
+                        pointStyle: "rectRot",
                         fill: false
                     }
                 ]
@@ -408,6 +544,7 @@
                         tension: 0.15,
                         pointRadius: 4,
                         pointBackgroundColor: "#ff8a5b",
+                        pointStyle: "rectRot",
                         fill: false
                     }
                 ]
