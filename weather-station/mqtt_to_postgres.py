@@ -1,6 +1,7 @@
 import paho.mqtt.client as mqtt
 import psycopg2
 import json
+from datetime import datetime
 
 # =========================
 # 🔗 POSTGRESQL CONFIG
@@ -46,25 +47,38 @@ def on_message(client, userdata, msg):
         # Converter JSON vindo do ESP32
         data = json.loads(payload)
 
-        temperatura = data.get("temperature")
-        umidade = data.get("humidity")
+        temperatura = data.get("temperature_dht11")
+        umidade = data.get("humidity_dht11")
+        pressao_atm = data.get("pressure_bmp280")
+
+        # IMPORTANTE: gravamos o horário explicitamente aqui, em vez de
+        # depender do DEFAULT CURRENT_TIMESTAMP da coluna no Postgres.
+        # O CURRENT_TIMESTAMP do banco usa o fuso da SESSÃO da conexão,
+        # que por padrão vinha em UTC nesta conexão (confirmado via
+        # diagnóstico), gravando a hora 3h adiantada em relação ao
+        # horário real do Brasil. datetime.now() usa o relógio local
+        # do sistema operacional onde este script roda.
+        agora_local = datetime.now()
 
         # Inserir no banco
         cursor.execute(
             """
-            INSERT INTO sensores (topico, mensagem, temperatura, umidade)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO sensores (topico, mensagem, temperatura, umidade, data_hora, pressao_atm) 
+            VALUES (%s, %s, %s, %s, %s, %s)
             """,
             (
                 topico,
                 payload,
                 temperatura,
-                umidade
+                umidade,
+                agora_local,
+                pressao_atm
+
             )
         )
 
         conn.commit()
-        print("💾 Dados salvos no PostgreSQL")
+        print(f"💾 Dados salvos no PostgreSQL ({agora_local})")
 
     except json.JSONDecodeError:
         print("⚠️ Payload não é JSON válido:", payload)

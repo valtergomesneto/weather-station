@@ -16,9 +16,15 @@ DB_CONFIG = dict(
 
 
 def get_connection():
-    """Abre uma conexão nova por requisição. Mais robusto que manter uma
-    conexão global (que quebra se o Postgres reiniciar ou cair a rede)."""
     return psycopg2.connect(**DB_CONFIG)
+
+
+def to_float(value):
+    """Converte Decimal (retornado pelo psycopg2 para colunas NUMERIC) para
+    float puro. O jsonify do Flask serializa Decimal como STRING, não como
+    número, o que quebra qualquer .toFixed() no JavaScript. None vira None
+    (json null), preservado normalmente."""
+    return float(value) if value is not None else None
 
 
 # =========================
@@ -38,7 +44,7 @@ def data():
     try:
         cursor = conn.cursor()
         cursor.execute("""
-                       SELECT temperatura, umidade, data_hora
+                       SELECT temperatura, umidade, pressao_atm, data_hora
                        FROM sensores
                        ORDER BY id DESC
                            LIMIT 20
@@ -50,9 +56,10 @@ def data():
     rows.reverse()
 
     return jsonify({
-        "temperatura": [r[0] for r in rows],
-        "umidade": [r[1] for r in rows],
-        "tempo": [str(r[2]) for r in rows]
+        "temperatura": [to_float(r[0]) for r in rows],
+        "umidade": [to_float(r[1]) for r in rows],
+        "pressao": [to_float(r[2]) for r in rows],
+        "tempo": [str(r[3]) for r in rows]
     })
 
 
@@ -67,7 +74,8 @@ def predictions():
         cursor = conn.cursor()
         cursor.execute("""
                        SELECT DISTINCT ON (horizonte_horas)
-                           horizonte_horas, timestamp_previsto, temperatura_prevista, umidade_prevista
+                           horizonte_horas, timestamp_previsto, temperatura_prevista,
+                           umidade_prevista, pressao_prevista
                        FROM previsoes
                        ORDER BY horizonte_horas, gerado_em DESC
                        """)
@@ -80,8 +88,9 @@ def predictions():
     return jsonify({
         "horizontes": [r[0] for r in rows],
         "tempo": [str(r[1]) for r in rows],
-        "temperatura": [r[2] for r in rows],
-        "umidade": [r[3] for r in rows],
+        "temperatura": [to_float(r[2]) for r in rows],
+        "umidade": [to_float(r[3]) for r in rows],
+        "pressao": [to_float(r[4]) for r in rows],
     })
 
 

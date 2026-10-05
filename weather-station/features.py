@@ -2,7 +2,15 @@
 Lógica compartilhada de carga de dados e feature engineering.
 Usado tanto por build_dataset.py (treino) quanto por predict_service.py
 (produção), para garantir que as features sejam calculadas exatamente
-da mesma forma nos dois casos.
+da mesma forma nos dois casos (evita train/serving skew).
+
+IMPORTANTE — por que não convertemos timezone aqui:
+sensores.data_hora é gravado em horário local do Brasil (datetime.now()
+no mqtt_to_postgres.py), e dados_historicos.timestamp também representa
+horário local do Brasil (Open-Meteo foi pedido com
+"timezone": "America/Sao_Paulo"). As duas fontes já estão no mesmo
+referencial, então só removemos timezone (se houver) sem converter
+nenhum valor.
 """
 
 import os
@@ -12,20 +20,27 @@ import pandas as pd
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 
-load_dotenv()  # carrega variáveis do arquivo .env (na mesma pasta do script), se existir
-
+load_dotenv()
 
 # ============================================================
-# CONFIGURAÇÃO — ajuste conforme seu schema real
+# CONFIGURAÇÃO
 # ============================================================
 TABLE_NAME = os.getenv("LOCAL_TABLE", "sensores")
 COL_TIMESTAMP = "data_hora"
 COL_TEMP = "temperatura"
 COL_UMID = "umidade"
+COL_PRESSAO_LOCAL = "pressao_atm"
 
 LAG_HOURS = [1, 2, 3, 6, 12, 24]
 ROLLING_WINDOWS = [3, 6, 12]
 HORIZONS = [1, 2, 3]
+
+# Colunas intermediárias (pré-merge), removidas antes do dropna para não
+# restringir o dataset só ao período em que a ESP32 já estava operando.
+COLUNAS_INTERMEDIARIAS = [
+    "temp_local", "umid_local", "pressao_local",
+    "temp_ext", "umid_ext", "pressao_ext",
+]
 
 
 def get_engine():
@@ -42,14 +57,12 @@ def get_engine():
     return create_engine(db_url)
 
 
-def _drop_tz(df: pd.DataFrame) -> pd.DataFrame:
-    """Remove informação de timezone do índice, se houver, sem converter o
-    horário (mantém o valor de relógio como veio do banco). Necessário porque
-    colunas TIMESTAMPTZ e TIMESTAMP no Postgres retornam índices tz-aware e
-    tz-naive respectivamente, e o pandas não consegue fazer join entre eles."""
-    if df.index.tz is not None:
-        df.index = df.index.tz_localize(None)
-    return df
+def strip_timezone(index: pd.DatetimeIndex) -> pd.DatetimeIndex:
+    """Remove timezone do índice sem converter o valor (ver nota no topo)."""
+    index = pd.to_datetime(index)
+    if index.tz is not None:
+        index = index.tz_localize(None)
+    return index
 
 
 def load_local_data(engine, since: str | None = None) -> pd.DataFrame:
@@ -58,16 +71,25 @@ def load_local_data(engine, since: str | None = None) -> pd.DataFrame:
         where_clause += f" AND {COL_TIMESTAMP} >= '{since}'"
 
     query = f"""
-        SELECT {COL_TIMESTAMP} AS timestamp, {COL_TEMP} AS temperatura, {COL_UMID} AS umidade
+        SELECT
+            {COL_TIMESTAMP} AS timestamp,
+            {COL_TEMP} AS temperatura,
+            {COL_UMID} AS umidade,
+            {COL_PRESSAO_LOCAL} AS pressao
         FROM {TABLE_NAME}
         {where_clause}
         ORDER BY {COL_TIMESTAMP}
     """
     df = pd.read_sql(query, engine, parse_dates=["timestamp"])
     df = df.set_index("timestamp")
-    df = _drop_tz(df)
+    df.index = strip_timezone(df.index)
+
     hourly = df.resample("1h").mean()
-    hourly = hourly.rename(columns={"temperatura": "temp_local", "umidade": "umid_local"})
+    hourly = hourly.rename(columns={
+        "temperatura": "temp_local",
+        "umidade": "umid_local",
+        "pressao": "pressao_local",
+    })
     return hourly
 
 
@@ -81,15 +103,28 @@ def load_external_data(engine, since: str | None = None) -> pd.DataFrame:
     """
     df = pd.read_sql(query, engine, parse_dates=["timestamp"])
     df = df.set_index("timestamp")
-    df = _drop_tz(df)
-    df = df.rename(columns={"temperatura": "temp_ext", "umidade": "umid_ext"})
+    df.index = strip_timezone(df.index)
+
+    df = df.rename(columns={
+        "temperatura": "temp_ext",
+        "umidade": "umid_ext",
+        "pressao": "pressao_ext",
+    })
     return df
 
 
 def merge_sources(local: pd.DataFrame, external: pd.DataFrame) -> pd.DataFrame:
+    local = local.sort_index()
+    external = external.sort_index()
+
     merged = local.join(external, how="outer")
+
+    # Prioridade: sensor local > fonte externa (para as 3 variáveis que
+    # a estação mede: temperatura, umidade e agora pressão também).
     merged["temperatura"] = merged["temp_local"].combine_first(merged["temp_ext"])
     merged["umidade"] = merged["umid_local"].combine_first(merged["umid_ext"])
+    merged["pressao"] = merged["pressao_local"].combine_first(merged["pressao_ext"])
+
     return merged.sort_index()
 
 
@@ -128,6 +163,7 @@ def build_feature_frame(engine, since: str | None = None) -> pd.DataFrame:
     local = load_local_data(engine, since=since)
     external = load_external_data(engine, since=since)
     df = merge_sources(local, external)
+    df = df.drop(columns=COLUNAS_INTERMEDIARIAS, errors="ignore")
     df = add_time_features(df)
     df = add_lag_and_rolling_features(df)
     return df

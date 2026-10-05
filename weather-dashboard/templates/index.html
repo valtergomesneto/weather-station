@@ -154,7 +154,7 @@
         /* ---------- CHARTS ---------- */
         .charts-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr 1fr 1fr;
             gap: 18px;
         }
 
@@ -216,6 +216,10 @@
             .forecast-strip { grid-template-columns: 1fr; }
             .charts-grid { grid-template-columns: 1fr; }
         }
+
+        @media (max-width: 960px) and (min-width: 641px) {
+            .charts-grid { grid-template-columns: 1fr 1fr; }
+        }
     </style>
 </head>
 <body>
@@ -228,9 +232,9 @@
         <div class="temp"><span id="heroTemp">--</span>°</div>
         <div class="condition" id="heroCondition">Carregando...</div>
         <div class="outlook" id="heroOutlook"></div>
-        <div class="outlook-hint">tendência estimada a partir da previsão do modelo</div>
+        <div class="outlook-hint">Tendência estimada a partir da previsão do modelo</div>
         <div class="meta">
-            Umidade <strong id="heroUmid">--</strong>% · Atualizado às <strong id="heroTime">--:--</strong>
+            Umidade <strong id="heroUmid">--</strong>% · Pressão <strong id="heroPressao">--</strong> hPa · Atualizado às <strong id="heroTime">--:--</strong>
         </div>
     </div>
 
@@ -257,6 +261,15 @@
             </p>
             <canvas id="chartHum"></canvas>
         </div>
+        <div class="chart-card">
+            <h3>Pressão Atmosférica</h3>
+            <p class="legend-hint">
+                <span class="item"><span class="swatch-line"></span>Real</span>
+                <span class="item"><span class="swatch-dash"></span>Previsto</span>
+                <span class="forecast-badge">ÁREA SOMBREADA = PREVISÃO</span>
+            </p>
+            <canvas id="chartPressao"></canvas>
+        </div>
     </div>
 
 </div>
@@ -264,6 +277,7 @@
 <script>
     let chartTemp;
     let chartHum;
+    let chartPressao;
 
     async function fetchData() {
         try {
@@ -328,22 +342,29 @@
         else if (deltaTemp >= 1.5) frases.push("🌡️ Deverá esquentar um pouco");
         else frases.push("🌡️ Temperatura deve seguir estável");
 
+        // Pressão em queda é um sinal clássico de mudança de tempo se
+        // aproximando; em alta costuma indicar tempo estabilizando.
+        if (real.pressao && pred.pressao && real.pressao.length > 0 && pred.pressao.length > 0) {
+            const pressaoAtual = real.pressao[n - 1];
+            const pressaoFutura = pred.pressao[pred.pressao.length - 1];
+            if (pressaoAtual != null && pressaoFutura != null) {
+                const deltaPressao = pressaoFutura - pressaoAtual;
+                if (deltaPressao <= -1.5) frases.push("📉 Pressão em queda — possível mudança no tempo");
+                else if (deltaPressao >= 1.5) frases.push("📈 Pressão em alta — tempo deve estabilizar");
+            }
+        }
+
         return frases.join(" · ");
     }
 
     function formatHora(isoString) {
-        // Assumimos que o timestamp vem do banco em UTC (comportamento comum
-        // quando o script de coleta grava com datetime.utcnow() ou o NTP da
-        // ESP32 está configurado em UTC). Convertendo explicitamente para
-        // America/Sao_Paulo (GMT-3), independente do fuso do navegador.
-        const isoUTC = isoString.replace(" ", "T") + "Z";
-        const d = new Date(isoUTC);
-        if (isNaN(d)) return isoString;
-        return d.toLocaleTimeString("pt-BR", {
-            hour: "2-digit",
-            minute: "2-digit",
-            timeZone: "America/Sao_Paulo"
-        });
+        // A causa raiz do desalinhamento de horário foi corrigida na fonte
+        // (mqtt_to_postgres.py agora grava data_hora explicitamente em
+        // horário local, em vez de depender do CURRENT_TIMESTAMP do banco,
+        // que vinha em UTC). Então aqui só extraímos a hora do texto, sem
+        // nenhuma conversão de fuso — o valor já vem correto do backend.
+        const match = isoString.match(/(\d{2}):(\d{2})/);
+        return match ? `${match[1]}:${match[2]}` : isoString;
     }
 
     function updateHero(real, pred) {
@@ -354,8 +375,11 @@
         const umid = real.umidade[n - 1];
         const cond = getCondition(temp, umid);
 
+        const pressao = real.pressao ? real.pressao[n - 1] : null;
+
         document.getElementById("heroTemp").textContent = temp.toFixed(1);
         document.getElementById("heroUmid").textContent = umid.toFixed(0);
+        document.getElementById("heroPressao").textContent = (pressao != null) ? pressao.toFixed(0) : "--";
         document.getElementById("heroIcon").textContent = cond.icon;
         document.getElementById("heroCondition").textContent = cond.label;
         document.getElementById("heroTime").textContent = formatHora(real.tempo[n - 1]);
@@ -369,7 +393,9 @@
         pred.horizontes.forEach((h, i) => {
             const temp = pred.temperatura[i];
             const umid = pred.umidade[i];
+            const pressao = pred.pressao ? pred.pressao[i] : null;
             const cond = getCondition(temp, umid);
+            const pressaoTexto = (pressao != null) ? ` · ${pressao.toFixed(0)} hPa` : "";
 
             const card = document.createElement("div");
             card.className = "forecast-card";
@@ -377,7 +403,7 @@
                 <div class="fc-label">Daqui ${h}h · ${formatHora(pred.tempo[i])}</div>
                 <div class="fc-icon">${cond.icon}</div>
                 <div class="fc-temp">${temp.toFixed(1)}°</div>
-                <div class="fc-umid">${umid.toFixed(0)}% umidade</div>
+                <div class="fc-umid">${umid.toFixed(0)}% umidade${pressaoTexto}</div>
                 <div class="fc-tag">PREVISTO</div>
             `;
             strip.appendChild(card);
@@ -402,6 +428,15 @@
             ...pred.umidade,
         ];
 
+        const realPressao = real.pressao || real.tempo.map(() => null);
+        const predPressao = pred.pressao || pred.tempo.map(() => null);
+        const pressaoReal = [...realPressao, ...pred.tempo.map(() => null)];
+        const pressaoPrevisto = [
+            ...nullsAteUltimoReal,
+            realPressao[realPressao.length - 1] ?? null,
+            ...predPressao,
+        ];
+
         const boundaryIndex = Math.max(real.tempo.length - 1, 0);
 
         chartTemp.$forecastBoundaryIndex = boundaryIndex;
@@ -415,6 +450,12 @@
         chartHum.data.datasets[0].data = umidReal;
         chartHum.data.datasets[1].data = umidPrevisto;
         chartHum.update();
+
+        chartPressao.$forecastBoundaryIndex = boundaryIndex;
+        chartPressao.data.labels = labels;
+        chartPressao.data.datasets[0].data = pressaoReal;
+        chartPressao.data.datasets[1].data = pressaoPrevisto;
+        chartPressao.update();
     }
 
     async function refreshAll() {
@@ -530,6 +571,39 @@
                         data: [],
                         borderColor: "#4fd1c5",
                         backgroundColor: "rgba(79, 209, 197, 0.12)",
+                        borderWidth: 2,
+                        tension: 0.35,
+                        pointRadius: 0,
+                        fill: true
+                    },
+                    {
+                        label: "Previsto",
+                        data: [],
+                        borderColor: "#ff8a5b",
+                        borderDash: [6, 4],
+                        borderWidth: 2,
+                        tension: 0.15,
+                        pointRadius: 4,
+                        pointBackgroundColor: "#ff8a5b",
+                        pointStyle: "rectRot",
+                        fill: false
+                    }
+                ]
+            },
+            options: baseChartOptions()
+        });
+
+        const ctx3 = document.getElementById("chartPressao").getContext("2d");
+        chartPressao = new Chart(ctx3, {
+            type: "line",
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: "Real",
+                        data: [],
+                        borderColor: "#a78bfa",
+                        backgroundColor: "rgba(167, 139, 250, 0.12)",
                         borderWidth: 2,
                         tension: 0.35,
                         pointRadius: 0,
