@@ -10,6 +10,8 @@ Uso:
 
 import argparse
 
+import pandas as pd
+
 from features import build_feature_frame, get_engine, HORIZONS
 
 
@@ -33,6 +35,18 @@ def build_dataset():
     print("Montando features (local + externo, lags, rolling, ciclos)...")
     df = build_feature_frame(engine)
     print(f"Registros após merge: {len(df)}")
+
+    # IMPORTANTE: o historical_ingest.py (modo "recent") busca também
+    # forecast_days=1 do Open-Meteo, então dados_historicos pode conter
+    # timestamps FUTUROS (a própria previsão de curto prazo deles, não uma
+    # observação real). Sem filtrar isso, essas linhas futuras viram
+    # "verdade" para os alvos (temp_t+1h etc.) das linhas mais recentes,
+    # contaminando o treino com a previsão de terceiros em vez do valor
+    # real observado.
+    agora = pd.Timestamp.now()
+    antes_filtro_futuro = len(df)
+    df = df[df.index <= agora]
+    print(f"Registros futuros (forecast externo) descartados: {antes_filtro_futuro - len(df)}")
 
     print("Criando targets...")
     df = add_targets(df)

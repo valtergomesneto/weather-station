@@ -47,7 +47,7 @@ def data():
                        SELECT temperatura, umidade, pressao_atm, data_hora
                        FROM sensores
                        ORDER BY id DESC
-                           LIMIT 20
+                           LIMIT 36
                        """)
         rows = cursor.fetchall()
     finally:

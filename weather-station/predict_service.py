@@ -37,10 +37,21 @@ def get_latest_features(engine, feature_cols: list) -> tuple[pd.Timestamp, pd.Da
     df = build_feature_frame(engine, since=since)
     df = df.dropna(subset=feature_cols)
 
+    # IMPORTANTE: o historical_ingest.py (modo "recent") busca do Open-Meteo
+    # também forecast_days=1, ou seja, dados_historicos pode conter
+    # timestamps FUTUROS (a própria previsão de curto prazo do Open-Meteo).
+    # Essas linhas futuras têm todas as features completas (vêm só da fonte
+    # externa) e passariam no dropna acima. Sem este filtro, iloc[-1]
+    # pegaria uma dessas linhas do futuro em vez do "agora" real,
+    # descolando a previsão do horário atual.
+    agora = pd.Timestamp.now()
+    df = df[df.index <= agora]
+
     if df.empty:
         raise RuntimeError(
-            "Não há nenhuma linha recente com todas as features completas. "
-            "Verifique se o historical_ingest.py e a coleta local estão em dia."
+            "Não há nenhuma linha recente (até o momento atual) com todas as "
+            "features completas. Verifique se o historical_ingest.py e a "
+            "coleta local estão em dia."
         )
 
     last_row = df.iloc[[-1]]

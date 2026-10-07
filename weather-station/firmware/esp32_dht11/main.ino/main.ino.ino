@@ -22,11 +22,12 @@ DHT dht(DHTPIN, DHTTYPE);
 Adafruit_BMP280 bmp;
 
 
+
 // =====================================================
 // WIFI
 // =====================================================
 
-const char* ssid = "Loading..._EXT";
+const char* ssid = "Loading...";
 const char* password = "9C2KC2200&v";
 
 
@@ -46,8 +47,11 @@ PubSubClient client(espClient);
 
 unsigned long ultimoEnvio = 0;
 
-const unsigned long intervaloEnvio = 30000; // 30 segundos
+//const unsigned long intervaloEnvio = 30000; // 30 segundos
 
+// const unsigned long intervaloEnvio = 60000; // 60 segundos
+
+const unsigned long intervaloEnvio = 300000; // 5 minutos
 
 // =====================================================
 // WIFI
