@@ -1,99 +1,119 @@
+
 import paho.mqtt.client as mqtt
 import psycopg2
 import json
 from datetime import datetime
 
 # =========================
-# 🔗 POSTGRESQL CONFIG
+# POSTGRESQL CONFIG
 # =========================
-conn = psycopg2.connect(
-    dbname="iot_db",
-    user="admin",
-    password="3415",
-    host="localhost",
-    port="5432"
-)
-
-cursor = conn.cursor()
-
+DB_CONFIG = {
+    "dbname": "iot_db",
+    "user": "admin",
+    "password": "3415",
+    "host": "localhost",
+    "port": 5432
+}
 
 # =========================
-# 📡 MQTT CONFIG
+# MQTT CONFIG
 # =========================
-MQTT_BROKER = "localhost"   # ou IP do broker
+MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
 MQTT_TOPIC = "weather/#"
 
+
 # =========================
-# 🔌 CALLBACK CONEXÃO MQTT
+# CALLBACK CONEXÃO MQTT
 # =========================
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
         print("✅ Conectado ao MQTT com sucesso")
         client.subscribe(MQTT_TOPIC)
+        print(f"📡 Inscrito no tópico: {MQTT_TOPIC}")
     else:
         print("❌ Falha na conexão MQTT. Código:", rc)
 
+
 # =========================
-# 📥 CALLBACK MENSAGEM
+# CALLBACK MENSAGEM
 # =========================
 def on_message(client, userdata, msg):
+    conn = None
     topico = msg.topic
-    payload = msg.payload.decode()
+    payload = msg.payload.decode("utf-8")
 
     print(f"📩 Recebido: {topico} -> {payload}")
 
     try:
-        # Converter JSON vindo do ESP32
         data = json.loads(payload)
 
         temperatura = data.get("temperature_dht11")
         umidade = data.get("humidity_dht11")
         pressao_atm = data.get("pressure_bmp280")
 
-        # IMPORTANTE: gravamos o horário explicitamente aqui, em vez de
-        # depender do DEFAULT CURRENT_TIMESTAMP da coluna no Postgres.
-        # O CURRENT_TIMESTAMP do banco usa o fuso da SESSÃO da conexão,
-        # que por padrão vinha em UTC nesta conexão (confirmado via
-        # diagnóstico), gravando a hora 3h adiantada em relação ao
-        # horário real do Brasil. datetime.now() usa o relógio local
-        # do sistema operacional onde este script roda.
         agora_local = datetime.now()
 
-        # Inserir no banco
-        cursor.execute(
-            """
-            INSERT INTO sensores (topico, mensagem, temperatura, umidade, data_hora, pressao_atm) 
-            VALUES (%s, %s, %s, %s, %s, %s)
-            """,
-            (
-                topico,
-                payload,
-                temperatura,
-                umidade,
-                agora_local,
-                pressao_atm
+        # Abre uma conexão válida para esta mensagem
+        conn = psycopg2.connect(**DB_CONFIG)
 
-            )
+        # O cursor é criado e fechado automaticamente
+        with conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO sensores
+                    (topico, mensagem, temperatura, umidade,
+                     data_hora, pressao_atm)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        topico,
+                        payload,
+                        temperatura,
+                        umidade,
+                        agora_local,
+                        pressao_atm
+                    )
+                )
+
+        print(
+            f"💾 Dados salvos no PostgreSQL "
+            f"({agora_local.strftime('%d/%m/%Y %H:%M:%S')})"
         )
-
-        conn.commit()
-        print(f"💾 Dados salvos no PostgreSQL ({agora_local})")
 
     except json.JSONDecodeError:
         print("⚠️ Payload não é JSON válido:", payload)
 
+    except psycopg2.Error as e:
+        print("❌ Erro no PostgreSQL:", e)
+
     except Exception as e:
-        print("❌ Erro ao salvar no banco:", e)
+        print("❌ Erro ao processar mensagem:", e)
+
+    finally:
+        if conn is not None:
+            conn.close()
+
 
 # =========================
-# 🚀 SETUP MQTT CLIENT
+# SETUP MQTT CLIENT
 # =========================
 client = mqtt.Client()
 client.on_connect = on_connect
 client.on_message = on_message
 
-client.connect(MQTT_BROKER, MQTT_PORT, 60)
+try:
+    client.connect(MQTT_BROKER, MQTT_PORT, 60)
+    print("⏳ Aguardando mensagens MQTT...")
+    client.loop_forever()
 
-print("⏳ Aguardando mensagens MQTT...")
-client.loop_forever()
+except KeyboardInterrupt:
+    print("\n🛑 Encerrando o consumidor MQTT...")
+
+except Exception as e:
+    print("❌ Erro na conexão MQTT:", e)
+
+finally:
+    client.disconnect()
+    client.loop_stop()

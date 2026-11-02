@@ -35,7 +35,7 @@ const char* password = "9C2KC2200&v";
 // MQTT
 // =====================================================
 
-const char* mqtt_server = "192.168.0.103";
+const char* mqtt_server = "192.168.0.204";
 
 WiFiClient espClient;
 PubSubClient client(espClient);
